@@ -33,12 +33,6 @@ function App() {
               Company Deep Dive
             </button>
             <button 
-              onClick={() => handleNav('compare')}
-              className={`flex items-center gap-2 text-sm px-3.5 py-2 rounded-lg font-medium transition-colors whitespace-nowrap ${activeTab === 'compare' ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}`}>
-              <Settings className="w-4 h-4" />
-              Peer Comparison
-            </button>
-            <button 
               onClick={() => handleNav('directory')}
               className={`flex items-center gap-2 text-sm px-3.5 py-2 rounded-lg font-medium transition-colors whitespace-nowrap ${activeTab === 'directory' ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}`}>
               <Building2 className="w-4 h-4" />

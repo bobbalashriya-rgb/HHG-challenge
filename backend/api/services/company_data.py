@@ -19,6 +19,18 @@ class CompanyProfile(BaseModel):
     industry: Optional[str] = None
     current_price: Optional[float] = None
     market_cap: Optional[int] = None
+    currency: Optional[str] = "USD"
+    shares_outstanding: Optional[int] = None
+    enterprise_value: Optional[float] = None
+    forward_pe: Optional[float] = None
+    trailing_pe: Optional[float] = None
+    peg_ratio: Optional[float] = None
+    price_to_sales: Optional[float] = None
+    price_to_book: Optional[float] = None
+    ev_to_ebitda: Optional[float] = None
+    ev_to_revenue: Optional[float] = None
+    book_value: Optional[float] = None
+    beta: Optional[float] = None
 
 class HistoricalPrice(BaseModel):
     date: str
@@ -86,13 +98,39 @@ def fetch_company_data(ticker: str) -> NormalizedCompanyData:
             logger.warning(error_msg)
             raise FinancialDataError(error_msg)
 
+        def _safe_float(val):
+            try:
+                return float(val) if val is not None else None
+            except (ValueError, TypeError):
+                return None
+
+        def _safe_int(val):
+            try:
+                return int(val) if val is not None else None
+            except (ValueError, TypeError):
+                return None
+
+        currency_val = info.get('currency') or ('INR' if ticker.upper().endswith(('.NS', '.BO')) else 'USD')
+
         profile = CompanyProfile(
             ticker=ticker,
             name=info.get('shortName') or info.get('longName'),
             sector=info.get('sector'),
             industry=info.get('industry'),
-            current_price=info.get('currentPrice') or info.get('regularMarketPrice'),
-            market_cap=info.get('marketCap')
+            current_price=_safe_float(info.get('currentPrice') or info.get('regularMarketPrice')),
+            market_cap=_safe_int(info.get('marketCap')),
+            currency=currency_val,
+            shares_outstanding=_safe_int(info.get('sharesOutstanding')),
+            enterprise_value=_safe_float(info.get('enterpriseValue')),
+            forward_pe=_safe_float(info.get('forwardPE')),
+            trailing_pe=_safe_float(info.get('trailingPE')),
+            peg_ratio=_safe_float(info.get('pegRatio')),
+            price_to_sales=_safe_float(info.get('priceToSalesTrailing12Months')),
+            price_to_book=_safe_float(info.get('priceToBook')),
+            ev_to_ebitda=_safe_float(info.get('enterpriseToEbitda')),
+            ev_to_revenue=_safe_float(info.get('enterpriseToRevenue')),
+            book_value=_safe_float(info.get('bookValue')),
+            beta=_safe_float(info.get('beta')),
         )
         logger.info(f"Successfully retrieved profile for {profile.name or ticker} ({ticker})")
         

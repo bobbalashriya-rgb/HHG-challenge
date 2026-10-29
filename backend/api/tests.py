@@ -1,6 +1,10 @@
+import unittest.mock
 from django.test import TestCase, Client
-from django.urls import reverse
 from api.models import InvestmentPrinciple
+from api.services.company_data import (
+    NormalizedCompanyData, CompanyProfile, FinancialStatements
+)
+from api.services.financial_metrics import calculate_metrics
 
 class ApiEndpointsTestCase(TestCase):
     def setUp(self):
@@ -39,7 +43,8 @@ class ApiEndpointsTestCase(TestCase):
         p = InvestmentPrinciple.objects.get(identifier='ROE_GT_15')
         self.assertEqual(p.threshold, 0.20)
 
-    def test_ask_endpoint(self):
+    @unittest.mock.patch('api.views.answer_financial_question', return_value="The ROE of Test Corp is 18%.")
+    def test_ask_endpoint(self, mock_ask):
         mock_context = {
             "profile": {"name": "Test Corp", "ticker": "TEST"},
             "metrics": {"roe": 0.18, "revenue_growth": 0.12},
@@ -73,3 +78,166 @@ class ApiEndpointsTestCase(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("detail", response.json())
 
+
+class ValuationMetricsTestCase(TestCase):
+    """Unit tests for the 6 Quantitative Valuation Modules and Edge Cases."""
+
+    def _create_mock_data(self, ticker="TCS.NS", net_profit=1000.0, revenue=5000.0, fcf=800.0, total_debt=200.0, interest_expense=20.0):
+        profile = CompanyProfile(
+            ticker=ticker,
+            name="Tata Consultancy Services",
+            sector="Technology",
+            industry="Information Technology Services",
+            current_price=3500.0,
+            market_cap=25000,
+            currency="INR",
+            shares_outstanding=10,
+            enterprise_value=27000.0,
+            forward_pe=22.5,
+            trailing_pe=25.0,
+            peg_ratio=1.8,
+            price_to_sales=5.0,
+            price_to_book=8.0,
+            ev_to_ebitda=18.0,
+            ev_to_revenue=5.4,
+            beta=0.85
+        )
+        financials = FinancialStatements(
+            income_statement={
+                "2024-03-31": {
+                    "Total Revenue": revenue,
+                    "Net Income": net_profit,
+                    "Operating Income": 1200.0,
+                    "EBIT": 1200.0,
+                    "EBITDA": 1500.0,
+                    "Interest Expense": interest_expense
+                },
+                "2023-03-31": {
+                    "Total Revenue": 4500.0,
+                    "Net Income": 900.0,
+                    "Operating Income": 1050.0,
+                    "EBIT": 1050.0
+                }
+            },
+            balance_sheet={
+                "2024-03-31": {
+                    "Stockholders Equity": 3125.0,
+                    "Total Assets": 4000.0,
+                    "Current Liabilities": 800.0,
+                    "Total Debt": total_debt,
+                    "Cash And Cash Equivalents": 500.0
+                }
+            },
+            cash_flow={
+                "2024-03-31": {
+                    "Operating Cash Flow": fcf + 200.0 if fcf is not None else None,
+                    "Capital Expenditure": 200.0
+                },
+                "2023-03-31": {
+                    "Operating Cash Flow": 900.0,
+                    "Capital Expenditure": 200.0
+                }
+            }
+        )
+        return NormalizedCompanyData(
+            profile=profile,
+            financials=financials,
+            historical_prices=[]
+        )
+
+    def test_earnings_valuation_eight_metrics(self):
+        """Verifies that all 8 Earnings-Based Valuation metrics are calculated with tooltips & formulas."""
+        data = self._create_mock_data()
+        res = calculate_metrics(data)
+
+        self.assertIsNotNone(res.valuation)
+        ev = res.valuation.earnings_valuation
+
+        # 1. P/E
+        self.assertEqual(ev.pe.abbreviation, "P/E")
+        self.assertIsNotNone(ev.pe.value)
+        self.assertIn("Share Price", ev.pe.formula or "")
+        self.assertIn("₹", ev.pe.explanation)
+
+        # 2. Forward P/E
+        self.assertEqual(ev.forward_pe.abbreviation, "Forward P/E")
+        self.assertEqual(ev.forward_pe.value, 22.5)
+
+        # 3. PEG
+        self.assertEqual(ev.peg.abbreviation, "PEG")
+        self.assertEqual(ev.peg.value, 1.8)
+
+        # 4. P/S
+        self.assertEqual(ev.ps.abbreviation, "P/S")
+        self.assertEqual(ev.ps.value, 5.0)
+
+        # 5. P/B
+        self.assertEqual(ev.pb.abbreviation, "P/B")
+        self.assertEqual(ev.pb.value, 8.0)
+
+        # 6. EV/EBITDA
+        self.assertEqual(ev.ev_ebitda.abbreviation, "EV/EBITDA")
+        self.assertEqual(ev.ev_ebitda.value, 18.0)
+
+        # 7. EV/EBIT (Calculated: 27000 / 1200 = 22.5)
+        self.assertEqual(ev.ev_ebit.abbreviation, "EV/EBIT")
+        self.assertAlmostEqual(ev.ev_ebit.value, 22.5, places=1)
+
+        # 8. EV/Sales
+        self.assertEqual(ev.ev_sales.abbreviation, "EV/Sales")
+        self.assertEqual(ev.ev_sales.value, 5.4)
+
+    def test_negative_earnings_safe_handling(self):
+        """Verifies that loss-making periods do not calculate invalid negative P/E or crash."""
+        data = self._create_mock_data(net_profit=-500.0)
+        # Clear profile trailing_pe to force fallback calculation
+        data.profile.trailing_pe = None
+        res = calculate_metrics(data)
+
+        self.assertIsNone(res.metrics.pe_ratio)
+        self.assertEqual(res.valuation.earnings_valuation.pe.formatted_value, "Not available")
+
+    def test_missing_cash_flow_dcf_marked_unavailable(self):
+        """Verifies that negative or missing FCF sets DCF is_available=False with honest disclosure."""
+        data = self._create_mock_data(fcf=-100.0)
+        res = calculate_metrics(data)
+
+        self.assertFalse(res.valuation.dcf_valuation.is_available)
+        self.assertIsNotNone(res.valuation.dcf_valuation.reason)
+        self.assertIn("negative or zero", res.valuation.dcf_valuation.reason.lower())
+        self.assertIsNone(res.valuation.dcf_valuation.intrinsic_value_per_share)
+
+    def test_positive_fcf_dcf_model(self):
+        """Verifies DCF intrinsic valuation outputs and transparent disclosed assumptions."""
+        data = self._create_mock_data(fcf=800.0)
+        res = calculate_metrics(data)
+
+        dcf = res.valuation.dcf_valuation
+        self.assertTrue(dcf.is_available)
+        self.assertEqual(len(dcf.projected_fcf), 5)
+        self.assertGreater(dcf.intrinsic_value_per_share, 0)
+        self.assertEqual(dcf.assumptions.discount_rate_pct, 10.5)
+        self.assertEqual(dcf.assumptions.terminal_growth_rate_pct, 3.0)
+
+    def test_quality_and_risk_metrics(self):
+        """Verifies Interest Coverage, Debt/Equity, and Cash Conversion calculations."""
+        data = self._create_mock_data(net_profit=1000.0, fcf=800.0, total_debt=200.0, interest_expense=20.0)
+        res = calculate_metrics(data)
+
+        qr = res.valuation.quality_risk
+        # Interest coverage = 1200 / 20 = 60.0
+        self.assertEqual(qr.interest_coverage.value, 60.0)
+        # Cash conversion = 800 / 1000 = 0.80
+        self.assertEqual(qr.cash_conversion.value, 0.8)
+        self.assertEqual(qr.beta.value, 0.85)
+
+    def test_relative_valuation_peer_benchmarking(self):
+        """Verifies sector peer benchmarking and discount/premium status badge."""
+        data = self._create_mock_data()
+        res = calculate_metrics(data)
+
+        rel = res.valuation.relative_valuation
+        self.assertEqual(rel.sector, "Technology")
+        self.assertIsNotNone(rel.benchmark_pe)
+        self.assertIsNotNone(rel.pe_discount_premium_pct)
+        self.assertIn("Sector", rel.status_badge)
