@@ -142,4 +142,5 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 # External Service Bindings
 WISPRFLOW_URL = os.getenv("WISPRFLOW_URL", "http://wisprflow:8002")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 

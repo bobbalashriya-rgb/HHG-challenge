@@ -54,3 +54,90 @@ export const compareCompanies = async (tickers) => {
     }
     return res.json();
 };
+
+// ==========================================
+// Authentication & Django Users / Groups API
+// ==========================================
+
+export const loginUser = async ({ username, password }) => {
+    const res = await fetch(`${BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username, password })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.detail || 'Invalid username or password.');
+    }
+    if (data.user) {
+        localStorage.setItem('finolitics_user', JSON.stringify(data.user));
+    }
+    return data;
+};
+
+export const loginOAuth = async ({ provider, email, name, oauth_id, credential, avatar_url }) => {
+    const res = await fetch(`${BASE_URL}/auth/oauth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ provider, email, name, oauth_id, credential, avatar_url })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.detail || 'OAuth authentication failed.');
+    }
+    if (data.user) {
+        localStorage.setItem('finolitics_user', JSON.stringify(data.user));
+    }
+    return data;
+};
+
+export const logoutUser = async () => {
+    try {
+        await fetch(`${BASE_URL}/auth/logout`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+    } catch (e) {
+        console.error('Logout error', e);
+    } finally {
+        localStorage.removeItem('finolitics_user');
+    }
+};
+
+export const fetchCurrentUser = async () => {
+    try {
+        const res = await fetch(`${BASE_URL}/auth/me`, { credentials: 'include' });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.authenticated && data.user) {
+                localStorage.setItem('finolitics_user', JSON.stringify(data.user));
+                return data.user;
+            }
+        }
+    } catch (e) {
+        console.warn('Could not fetch server session', e);
+    }
+    
+    // Fallback to local storage
+    const cached = localStorage.getItem('finolitics_user');
+    if (cached) {
+        try {
+            return JSON.parse(cached);
+        } catch (_) {}
+    }
+    return null;
+};
+
+export const fetchGroups = async () => {
+    const res = await fetch(`${BASE_URL}/auth/groups`);
+    if (!res.ok) throw new Error('Failed to fetch Django groups');
+    return res.json();
+};
+
+export const fetchUsers = async () => {
+    const res = await fetch(`${BASE_URL}/auth/users`);
+    if (!res.ok) throw new Error('Failed to fetch Django users');
+    return res.json();
+};

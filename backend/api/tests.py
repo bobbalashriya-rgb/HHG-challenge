@@ -241,3 +241,72 @@ class ValuationMetricsTestCase(TestCase):
         self.assertIsNotNone(rel.benchmark_pe)
         self.assertIsNotNone(rel.pe_discount_premium_pct)
         self.assertIn("Sector", rel.status_badge)
+
+
+class AuthEndpointsTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        from django.contrib.auth.models import User, Group
+        self.group_user, _ = Group.objects.get_or_create(name='user group_1')
+        self.group_admin, _ = Group.objects.get_or_create(name='Administrators')
+
+        self.user = User.objects.create_user(
+            username='testanalyst',
+            email='analyst@test.com',
+            password='Password123!',
+            first_name='Test',
+            last_name='Analyst'
+        )
+        self.user.groups.add(self.group_user, self.group_admin)
+
+    def test_django_credentials_login(self):
+        """Tests successful Django credentials login and group serialization."""
+        response = self.client.post(
+            '/api/auth/login',
+            data={'username': 'testanalyst', 'password': 'Password123!'},
+            content_type='application/json'
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('user', data)
+        self.assertEqual(data['user']['username'], 'testanalyst')
+        self.assertIn('user group_1', data['user']['groups'])
+        self.assertIn('Administrators', data['user']['groups'])
+
+    def test_invalid_credentials_rejected(self):
+        """Tests that invalid passwords return 401 Unauthorized."""
+        response = self.client.post(
+            '/api/auth/login',
+            data={'username': 'testanalyst', 'password': 'WrongPassword!'},
+            content_type='application/json'
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_oauth_login_provisioning_and_groups(self):
+        """Tests OAuth user registration, automatic group assignment, and login."""
+        response = self.client.post(
+            '/api/auth/oauth',
+            data={
+                'provider': 'google',
+                'email': 'newoauthuser@example.com',
+                'name': 'New OAuth User',
+                'oauth_id': 'google_test_123'
+            },
+            content_type='application/json'
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['is_new_user'])
+        self.assertEqual(data['user']['email'], 'newoauthuser@example.com')
+        self.assertIn('user group_1', data['user']['groups'])
+        self.assertIn('Investment Analysts', data['user']['groups'])
+
+    def test_groups_endpoint(self):
+        """Tests retrieval of Django groups and member counts."""
+        response = self.client.get('/api/auth/groups')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        group_names = [g['name'] for g in data]
+        self.assertIn('user group_1', group_names)
+        self.assertIn('Administrators', group_names)
+
