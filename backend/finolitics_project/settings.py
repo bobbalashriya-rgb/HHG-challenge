@@ -1,9 +1,14 @@
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Include root directory in Python path for qualitative analysis apps
+if str(BASE_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR.parent))
 
 # Load environment variables (.env)
 load_dotenv(BASE_DIR / '.env')
@@ -26,8 +31,13 @@ INSTALLED_APPS = [
     # Third-party apps
     'corsheaders',
     'rest_framework',
+    'drf_spectacular',
     # Local apps
     'api.apps.ApiConfig',
+    'core.apps.CoreConfig',
+    'companies.apps.CompaniesConfig',
+    'documents.apps.DocumentsConfig',
+    'research.apps.ResearchConfig',
 ]
 
 MIDDLEWARE = [

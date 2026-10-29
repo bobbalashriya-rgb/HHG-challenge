@@ -5,6 +5,11 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Include backend in sys.path
+import sys
+if str(BASE_DIR / "backend") not in sys.path:
+    sys.path.insert(0, str(BASE_DIR / "backend"))
+
 # Load environment variables from .env file
 load_dotenv(BASE_DIR / ".env")
 
@@ -37,6 +42,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
 
     # Project domain apps
+    "api.apps.ApiConfig",
     "core.apps.CoreConfig",
     "companies.apps.CompaniesConfig",
     "documents.apps.DocumentsConfig",
