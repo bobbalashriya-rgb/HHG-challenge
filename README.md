@@ -37,7 +37,7 @@ HHG Challenge/
 
 ## ⚡ Quick Start
 
-### 1. Backend Setup (Django)
+### 1. Backend Setup (Django & PostgreSQL)
 
 ```bash
 cd backend
@@ -45,11 +45,15 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+
+# Ensure PostgreSQL is running and database exists:
+# createdb finolitics (or docker compose up -d)
+
 python manage.py migrate
 python manage.py runserver 0.0.0.0:8000
 ```
 
-The Django server will run at `http://127.0.0.1:8000/`. Default investment principles are automatically seeded on migration.
+The Django server will run at `http://127.0.0.1:8000/`. Default investment principles are automatically seeded into PostgreSQL on migration.
 
 ### 2. Frontend Setup (React)
 

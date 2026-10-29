@@ -7,8 +7,8 @@ This directory (`backend/`) is the **Django** and **Django REST Framework (DRF)*
 ## 🚀 Key Features & Conversions
 
 - **Framework**: Built on **Django 5.x** & **Django REST Framework (DRF)**.
-- **ORM & Database**: Powered by **Django ORM** (`InvestmentPrinciple` model) with automatic migration support.
-- **Auto-Seeding**: Automatic population of default institutional investment principles via `post_migrate` signal and custom management command.
+- **ORM & Database**: Powered by **PostgreSQL** via **Django ORM** (`InvestmentPrinciple` model) with psycopg2/psycopg support and automatic migration handling.
+- **Auto-Seeding**: Automatic population of default institutional investment principles via `post_migrate` signal, JSON fixture (`fixtures/principles.json`), and custom management command.
 - **Built-in Admin Interface**: Full CRUD administration of investment principles and thresholds at `/admin/`.
 - **CORS Support**: Integrated `django-cors-headers` allowing frontend calls from Vite dev (`:5173`) and production domains.
 - **Complete Pipeline Services**: Preserved all institutional financial research services:
@@ -24,10 +24,10 @@ This directory (`backend/`) is the **Django** and **Django REST Framework (DRF)*
 ```
 backend/
 ├── manage.py                          # Django CLI utility
-├── requirements.txt                   # Production dependencies
+├── requirements.txt                   # Production dependencies (PostgreSQL + DRF)
 ├── .env.example                       # Environment configuration template
 ├── finolitics_project/                # Core Django project configuration
-│   ├── settings.py                    # CORS, DRF, DB, and app settings
+│   ├── settings.py                    # CORS, DRF, PostgreSQL, and app settings
 │   ├── urls.py                        # Root URL routing
 │   ├── wsgi.py                        # WSGI production entrypoint
 │   └── asgi.py                        # ASGI entrypoint
@@ -38,6 +38,7 @@ backend/
     ├── views.py                       # DRF APIViews (endpoints)
     ├── urls.py                        # API route mappings (/api/*)
     ├── apps.py                        # App config with auto-seeding signal
+    ├── fixtures/                      # Seed data fixtures (principles.json)
     ├── tests.py                       # Automated test suite
     ├── management/commands/
     │   └── seed_principles.py         # Custom command: python manage.py seed_principles
@@ -60,18 +61,46 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
-Copy `.env.example` to `.env`:
+### 2. Configure PostgreSQL & Environment
+Start your local PostgreSQL service or use Docker:
+```bash
+# Optional: run postgres via docker from project root
+docker compose up -d
+```
+Or create the database locally with Homebrew PostgreSQL:
+```bash
+createdb finolitics
+```
+
+Copy `.env.example` to `.env` and set your PostgreSQL credentials:
 ```bash
 cp .env.example .env
 ```
-Ensure your `GEMINI_API_KEY` is added to `.env`.
+
+Postgres configuration options in `.env`:
+```env
+DB_ENGINE=django.db.backends.postgresql
+DB_NAME=finolitics
+DB_USER=postgres       # Or your local macOS username (e.g. shriya)
+DB_PASSWORD=your_password
+DB_HOST=localhost
+DB_PORT=5432
+# Alternatively:
+# DATABASE_URL=postgresql://postgres:password@localhost:5432/finolitics
+```
 
 ### 3. Run Migrations & Seed Database
 ```bash
 python manage.py migrate
 ```
 *(The default 6 investment principles are automatically seeded during migration!)*
+
+You can also re-seed or reset principles at any time:
+```bash
+python manage.py seed_principles
+# or reload from fixture
+python manage.py loaddata api/fixtures/principles.json
+```
 
 ### 4. (Optional) Create Admin User
 ```bash

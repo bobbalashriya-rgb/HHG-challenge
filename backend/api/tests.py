@@ -12,6 +12,8 @@ class ApiEndpointsTestCase(TestCase):
         data = response.json()
         self.assertIn("message", data)
         self.assertIn("Django", data["message"])
+        self.assertEqual(data["database"]["engine"], "postgresql")
+        self.assertEqual(data["database"]["status"], "connected")
 
     def test_principles_list(self):
         response = self.client.get('/api/principles')

@@ -63,13 +63,43 @@ WSGI_APPLICATION = 'finolitics_project.wsgi.application'
 ASGI_APPLICATION = 'finolitics_project.asgi.application'
 
 # Database
-# Default to SQLite finolitics.db
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'finolitics.db',
+# PostgreSQL database configuration
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+if DATABASE_URL:
+    try:
+        import dj_database_url
+        DATABASES = {
+            'default': dj_database_url.config(
+                default=DATABASE_URL,
+                conn_max_age=600,
+                conn_health_checks=True,
+            )
+        }
+    except ImportError:
+        from urllib.parse import urlparse
+        parsed = urlparse(DATABASE_URL)
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': parsed.path.lstrip('/'),
+                'USER': parsed.username or '',
+                'PASSWORD': parsed.password or '',
+                'HOST': parsed.hostname or 'localhost',
+                'PORT': parsed.port or 5432,
+            }
+        }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME') or os.getenv('POSTGRES_DB') or 'finolitics',
+            'USER': os.getenv('DB_USER') or os.getenv('POSTGRES_USER') or 'postgres',
+            'PASSWORD': os.getenv('DB_PASSWORD') or os.getenv('POSTGRES_PASSWORD') or '',
+            'HOST': os.getenv('DB_HOST') or os.getenv('POSTGRES_HOST') or 'localhost',
+            'PORT': os.getenv('DB_PORT') or os.getenv('POSTGRES_PORT') or '5432',
+        }
     }
-}
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
