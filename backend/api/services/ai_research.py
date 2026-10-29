@@ -1,12 +1,25 @@
 import os
 import json
 import logging
-import google.generativeai as genai
 from typing import Optional, Dict, Any, Union
+
+try:
+    from google import genai as modern_genai
+    HAS_MODERN_GENAI = True
+except ImportError:
+    HAS_MODERN_GENAI = False
+
+import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
 DISCLAIMER = "This analysis is for research and educational purposes only and is not financial advice."
+
+# Model candidate hierarchy prioritizing gemini-3.8-flash (models/gemini-2.0-flash is deprecated/removed)
+GEMINI_MODELS = [
+    'gemini-3.8-flash',
+    'gemini-flash-latest',
+]
 
 def build_algorithmic_single_report(company_data: Any, metrics_dict: Dict, evaluation_report: Dict) -> Dict:
     """Builds a deterministic institutional investment thesis directly from verified financial statements."""
@@ -194,9 +207,23 @@ def generate_research_report(company_data: Any, metrics_dict: Dict, evaluation_r
         }}
         """
         
-        model_names = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-1.5-flash']
-        for m_name in model_names:
+        for m_name in GEMINI_MODELS:
             try:
+                if HAS_MODERN_GENAI:
+                    try:
+                        client = modern_genai.Client(api_key=api_key)
+                        resp = client.models.generate_content(
+                            model=m_name,
+                            contents=prompt,
+                            config={"response_mime_type": "application/json"}
+                        )
+                        if resp and resp.text:
+                            result = json.loads(resp.text)
+                            result['disclaimer'] = DISCLAIMER
+                            return result
+                    except Exception as mod_err:
+                        logger.info(f"Modern GenAI model {m_name} in report notice: {mod_err}")
+
                 model = genai.GenerativeModel(m_name, generation_config={"response_mime_type": "application/json"})
                 response = model.generate_content(prompt)
                 if response and response.text:
@@ -214,35 +241,140 @@ def generate_research_report(company_data: Any, metrics_dict: Dict, evaluation_r
         logger.error(f"AI Generation failed: {str(e)}", exc_info=True)
         return build_algorithmic_single_report(company_data, metrics_dict, evaluation_report)
 
+def build_grounded_context_answer(context: dict, question: str) -> str:
+    """Provides a deterministic, grounded answer directly from verified statement data when LLM is unavailable."""
+    profile = context.get("profile") or context.get("company_data", {}).get("profile", {})
+    ticker = profile.get("ticker", "The company") if isinstance(profile, dict) else "The company"
+    name = profile.get("name", ticker) if isinstance(profile, dict) else ticker
+
+    eval_data = context.get("evaluation") or context.get("evaluations") or {}
+    evaluations = eval_data.get("evaluations", []) if isinstance(eval_data, dict) else (eval_data if isinstance(eval_data, list) else [])
+    
+    metrics = context.get("metrics") or {}
+    m_dict = metrics.get("metrics", {}) if isinstance(metrics, dict) else metrics
+    val_dict = metrics.get("valuation", {}) if isinstance(metrics, dict) else {}
+
+    q_lower = question.lower()
+
+    # Question about principles, threshold failure or passes
+    if any(k in q_lower for k in ["principle", "fail", "pass", "threshold", "rule", "why"]):
+        failed = [e for e in evaluations if e.get("status") == "Fail"]
+        passed = [e for e in evaluations if e.get("status") == "Pass"]
+
+        lines = [f"Based on verified financial statements for {name} ({ticker}):\n"]
+        if failed:
+            lines.append(f"• Failed Principles ({len(failed)}):")
+            for f in failed:
+                p_name = f.get("name", "Principle")
+                act = f.get("actual_value", "N/A")
+                thr = f.get("threshold", "N/A")
+                op = f.get("operator", "")
+                lines.append(f"  - {p_name}: Actual value was {act}, which did not satisfy the institutional rule ({op} {thr}).")
+        else:
+            lines.append("• All evaluated institutional investment principles passed successfully.")
+
+        if passed:
+            lines.append(f"\n• Passed Principles ({len(passed)}):")
+            for p in passed:
+                p_name = p.get("name", "Principle")
+                act = p.get("actual_value", "N/A")
+                thr = p.get("threshold", "N/A")
+                lines.append(f"  - {p_name}: Satisfied requirement with actual {act} (threshold {thr}).")
+
+        lines.append(f"\n{DISCLAIMER}")
+        return "\n".join(lines)
+
+    # Question about valuation multiples, P/E, DCF
+    if any(k in q_lower for k in ["pe", "p/e", "valuation", "multiple", "dcf", "intrinsic", "peg"]):
+        pe = m_dict.get("pe_ratio")
+        fwd_pe = val_dict.get("earnings_valuation", {}).get("forward_pe", {}).get("value")
+        peg = m_dict.get("peg_ratio")
+        ps = val_dict.get("earnings_valuation", {}).get("ps", {}).get("value")
+        pb = val_dict.get("earnings_valuation", {}).get("pb", {}).get("value")
+        dcf = val_dict.get("dcf_valuation", {})
+
+        lines = [f"Valuation Multiples for {name} ({ticker}):\n"]
+        lines.append(f"• Trailing P/E: {pe:.2f}" if pe is not None else "• Trailing P/E: Not available")
+        lines.append(f"• Forward P/E: {fwd_pe:.2f}" if fwd_pe is not None else "• Forward P/E: Not available")
+        lines.append(f"• PEG Ratio: {peg:.2f}" if peg is not None else "• PEG Ratio: Not available")
+        lines.append(f"• Price-to-Sales (P/S): {ps:.2f}" if ps is not None else "• Price-to-Sales: Not available")
+        lines.append(f"• Price-to-Book (P/B): {pb:.2f}" if pb is not None else "• Price-to-Book: Not available")
+        
+        if isinstance(dcf, dict) and dcf.get("is_available"):
+            iv = dcf.get("intrinsic_value_per_share")
+            mos = dcf.get("margin_of_safety_pct")
+            lines.append(f"• DCF Intrinsic Value: ₹{iv:.2f} per share (Margin of Safety: {mos:+.1f}%)" if iv else "• DCF Intrinsic Value: Model active")
+        elif isinstance(dcf, dict):
+            lines.append(f"• DCF Intrinsic Valuation: {dcf.get('reason', 'Negative or unavailable free cash flow.')}")
+
+        lines.append(f"\n{DISCLAIMER}")
+        return "\n".join(lines)
+
+    # General / Default financial response
+    lines = [
+        f"Verified Financial Context for {name} ({ticker}):\n",
+        f"• ROE: {m_dict.get('roe', 'N/A')}",
+        f"• Operating Margin: {m_dict.get('operating_margin', 'N/A')}",
+        f"• Revenue Growth: {m_dict.get('revenue_growth', 'N/A')}",
+        f"• Debt-to-Equity: {m_dict.get('debt_to_equity', 'N/A')}",
+        f"\n{DISCLAIMER}"
+    ]
+    return "\n".join(lines)
+
 def answer_financial_question(context: dict, question: str) -> str:
-    """Answers a user question strictly bounded by the provided context."""
+    """
+    Answers a user question strictly bounded by the provided financial context.
+    Prioritizes models/gemini-3.8-flash via the official Interactions API,
+    with graceful fallbacks and deterministic grounded answers.
+    """
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key or api_key == "your_gemini_api_key_here":
-        return "AI service is not configured. Please add GEMINI_API_KEY to your environment."
-    try:
-        genai.configure(api_key=api_key)
-        prompt = f"""
-        You are 'Finolitics', an AI financial assistant. Answer the user's question using ONLY the provided financial context.
-        
-        CONTEXT: {json.dumps(context, default=str)}
-        
-        RULES:
-        1. Do NOT invent financial facts, metrics, or company history.
-        2. If the answer cannot be determined from the available data, clearly state: "The information required to answer this is unavailable in the current data."
-        3. Do not generate buy, sell, or hold recommendations.
-        4. Focus heavily on why principles failed or succeeded based on the threshold criteria.
-        
-        QUESTION: {question}
-        """
-        try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            return model.generate_content(prompt).text
-        except Exception:
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            return model.generate_content(prompt).text
-    except Exception as e:
-        logger.error(f"Failed to generate answer: {e}", exc_info=True)
-        return f"Failed to generate answer: {str(e)}"
+    prompt = f"""
+    You are 'Finolitics', an institutional AI financial assistant. Answer the user's question using ONLY the provided financial context.
+    
+    CONTEXT: {json.dumps(context, default=str)}
+    
+    RULES:
+    1. Do NOT invent financial facts, metrics, or company history.
+    2. If the answer cannot be determined from the available data, clearly state: "The information required to answer this is unavailable in the current data."
+    3. Do not generate buy, sell, or hold recommendations.
+    4. Focus heavily on why principles failed or succeeded based on the threshold criteria.
+    
+    QUESTION: {question}
+    """
+
+    if api_key and api_key != "your_gemini_api_key_here":
+        # 1. Try modern google-genai SDK (Interactions API)
+        if HAS_MODERN_GENAI:
+            for m_name in GEMINI_MODELS:
+                try:
+                    client = modern_genai.Client(api_key=api_key, http_options={'timeout': 15000})
+                    resp = client.models.generate_content(
+                        model=m_name,
+                        contents=prompt,
+                    )
+                    if resp and resp.text:
+                        return resp.text.strip()
+                except Exception as m_err:
+                    logger.warning(f"Interactions API model {m_name} notice: {m_err}")
+                    continue
+        else:
+            # 2. Legacy google-generativeai SDK fallback
+            try:
+                genai.configure(api_key=api_key)
+                for m_name in GEMINI_MODELS:
+                    try:
+                        model = genai.GenerativeModel(m_name)
+                        resp = model.generate_content(prompt)
+                        if resp and resp.text:
+                            return resp.text.strip()
+                    except Exception as ex:
+                        logger.warning(f"GenerativeAI model {m_name} notice: {ex}")
+                        continue
+            except Exception as e:
+                logger.warning(f"Legacy genai configuration failed: {e}")
+
+    # 3. Fallback to grounded deterministic financial analysis from context
+    return build_grounded_context_answer(context, question)
 
 def build_algorithmic_comparison(context1: dict, context2: dict) -> dict:
     """Builds a deterministic institutional quantitative comparison tear-sheet from verified statement data."""
@@ -443,10 +575,23 @@ def generate_comparison_report(context1: dict, context2: dict) -> Union[Dict[str
         }}
         """
 
-        model_names = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-1.5-flash']
-        response = None
-        for m_name in model_names:
+        for m_name in GEMINI_MODELS:
             try:
+                if HAS_MODERN_GENAI:
+                    try:
+                        client = modern_genai.Client(api_key=api_key)
+                        resp = client.models.generate_content(
+                            model=m_name,
+                            contents=prompt,
+                            config={"response_mime_type": "application/json"}
+                        )
+                        if resp and resp.text:
+                            parsed = json.loads(resp.text)
+                            parsed["disclaimer"] = DISCLAIMER
+                            return parsed
+                    except Exception as mod_err:
+                        logger.info(f"Modern GenAI model {m_name} in comparison notice: {mod_err}")
+
                 model = genai.GenerativeModel(
                     m_name,
                     generation_config={"response_mime_type": "application/json"}

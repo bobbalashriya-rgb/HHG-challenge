@@ -31,7 +31,8 @@ export default function AskFinolitics({ context }) {
                     value={question} 
                     onChange={(e)=>setQuestion(e.target.value)} 
                     placeholder="e.g. Why did the company fail my valuation principle?"
-                    className="flex-1 border border-slate-300 rounded-md px-4 py-2 text-sm focus:ring-blue-500 focus:border-blue-500 outline-none shadow-inner"
+                    className="flex-1 border border-slate-300 rounded-md px-4 py-2 text-sm text-black placeholder:text-slate-400 focus:text-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-inner bg-white font-medium"
+                    style={{ color: '#000000' }}
                     disabled={loading}
                 />
                 <button type="submit" disabled={loading || !question.trim()} className="bg-blue-600 text-white px-5 py-2 rounded-md text-sm font-medium disabled:opacity-50 flex items-center hover:bg-blue-700 transition">
