@@ -87,6 +87,5 @@ python manage.py test api
 | `PUT` | `/api/principles/<id>` | Update threshold for a principle |
 | `GET` | `/api/company/<ticker>` | Fetch normalized Yfinance statements |
 | `POST` | `/api/analyze` | Single company deep-dive analysis (`{"ticker": "AAPL"}`) |
-| `POST` | `/api/compare` | Head-to-head comparison (`{"tickers": ["TCS.NS", "INFY.NS"]}`) |
 | `POST` | `/api/ask` | Interactive Q&A on company financial context |
 | `GET` | `/admin/` | Django Administration portal |
