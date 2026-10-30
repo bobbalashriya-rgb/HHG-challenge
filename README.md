@@ -89,3 +89,8 @@ python manage.py test api
 | `POST` | `/api/analyze` | Single company deep-dive analysis (`{"ticker": "AAPL"}`) |
 | `POST` | `/api/ask` | Interactive Q&A on company financial context |
 | `GET` | `/admin/` | Django Administration portal |
+
+
+
+<img width="1600" height="940" alt="WhatsApp Image 2026-10-30 at 09 50 41" src="https://github.com/user-attachments/assets/010f245e-d263-4545-8bc6-00af45d6b157" />
+
