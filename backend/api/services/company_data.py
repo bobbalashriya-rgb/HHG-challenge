@@ -1,4 +1,6 @@
+import time
 import logging
+import concurrent.futures
 import pandas as pd
 import yfinance as yf
 from pydantic import BaseModel
@@ -7,6 +9,10 @@ from typing import Optional, Dict, Any, List
 # Configure logger for the financial data layer
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Fast in-memory cache with 5-minute TTL to make repeated queries instant
+_COMPANY_DATA_CACHE: Dict[str, Any] = {}
+_CACHE_TTL_SECONDS = 300
 
 # ---------------------------------------------------------
 # Normalized Internal Data Models
@@ -80,21 +86,41 @@ def _clean_dataframe_to_dict(df: pd.DataFrame) -> Dict[str, Any]:
 
 def fetch_company_data(ticker: str) -> NormalizedCompanyData:
     """
-    Fetches comprehensive financial data for a given ticker from yfinance.
-    Normalizes the response into a structured, internal data model.
+    Fetches comprehensive financial data for a given ticker from yfinance using concurrent workers.
+    Normalizes the response into a structured, internal data model with TTL caching.
     """
-    logger.info(f"Initiating data retrieval for ticker: {ticker}")
+    ticker_clean = ticker.strip().upper()
+    now = time.time()
+
+    # Check cache first
+    if ticker_clean in _COMPANY_DATA_CACHE:
+        cached_item, expiry = _COMPANY_DATA_CACHE[ticker_clean]
+        if now < expiry:
+            logger.info(f"Returning cached company data for {ticker_clean}")
+            return cached_item
+
+    logger.info(f"Initiating concurrent data retrieval for ticker: {ticker_clean}")
     
     try:
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(ticker_clean)
         
-        # 1. Fetch Company Profile & Info
-        info = stock.info
+        # Concurrently fetch info, financials, balance sheet, cashflow, and history
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            fut_info = executor.submit(lambda: stock.info)
+            fut_financials = executor.submit(lambda: stock.financials)
+            fut_balance = executor.submit(lambda: stock.balance_sheet)
+            fut_cashflow = executor.submit(lambda: stock.cashflow)
+            fut_history = executor.submit(lambda: stock.history(period="1y"))
+
+            info = fut_info.result()
+            inc_stmt = fut_financials.result()
+            bal_sheet = fut_balance.result()
+            cash_flw = fut_cashflow.result()
+            history_df = fut_history.result()
         
         # Check for invalid/unavailable ticker heuristic
-        # yfinance often returns dicts with only 'trailingPegRatio' or an empty dict for bad tickers
         if not info or ('regularMarketPrice' not in info and 'currentPrice' not in info and 'shortName' not in info):
-            error_msg = f"No valid company data found for ticker {ticker}. It may be invalid or delisted."
+            error_msg = f"No valid company data found for ticker {ticker_clean}. It may be invalid or delisted."
             logger.warning(error_msg)
             raise FinancialDataError(error_msg)
 
@@ -146,12 +172,9 @@ def fetch_company_data(ticker: str) -> NormalizedCompanyData:
             cash_flow=_clean_dataframe_to_dict(cash_flw)
         )
         
-        # 3. Fetch Historical Price Data
-        logger.info(f"Fetching historical price data for {ticker} (1 year)...")
-        history_df = stock.history(period="1y")
-        
+        # 3. Process Historical Price Data
         historical_prices = []
-        if not history_df.empty:
+        if history_df is not None and not history_df.empty:
             hist_reset = history_df.reset_index()
             for _, row in hist_reset.iterrows():
                 # Safely extract date
@@ -166,15 +189,19 @@ def fetch_company_data(ticker: str) -> NormalizedCompanyData:
                     volume=int(row['Volume']) if pd.notna(row['Volume']) else None
                 ))
         else:
-            logger.warning(f"No historical price data returned for {ticker}.")
+            logger.warning(f"No historical price data returned for {ticker_clean}.")
             
-        logger.info(f"Successfully normalized all data for {ticker}.")
+        logger.info(f"Successfully normalized all data for {ticker_clean}.")
         
-        return NormalizedCompanyData(
+        result = NormalizedCompanyData(
             profile=profile,
             financials=financials,
             historical_prices=historical_prices
         )
+        
+        # Save to memory cache
+        _COMPANY_DATA_CACHE[ticker_clean] = (result, time.time() + _CACHE_TTL_SECONDS)
+        return result
         
     except FinancialDataError:
         # Re-raise the custom error without wrapping it

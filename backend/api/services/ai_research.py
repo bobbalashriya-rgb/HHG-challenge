@@ -207,34 +207,24 @@ def generate_research_report(company_data: Any, metrics_dict: Dict, evaluation_r
         }}
         """
         
-        for m_name in GEMINI_MODELS:
-            try:
-                if HAS_MODERN_GENAI:
-                    try:
-                        client = modern_genai.Client(api_key=api_key)
-                        resp = client.models.generate_content(
-                            model=m_name,
-                            contents=prompt,
-                            config={"response_mime_type": "application/json"}
-                        )
-                        if resp and resp.text:
-                            result = json.loads(resp.text)
-                            result['disclaimer'] = DISCLAIMER
-                            return result
-                    except Exception as mod_err:
-                        logger.info(f"Modern GenAI model {m_name} in report notice: {mod_err}")
+        if HAS_MODERN_GENAI:
+            for m_name in GEMINI_MODELS:
+                try:
+                    client = modern_genai.Client(api_key=api_key, http_options={'timeout': 10000})
+                    resp = client.models.generate_content(
+                        model=m_name,
+                        contents=prompt,
+                        config={"response_mime_type": "application/json"}
+                    )
+                    if resp and resp.text:
+                        result = json.loads(resp.text)
+                        result['disclaimer'] = DISCLAIMER
+                        return result
+                except Exception as mod_err:
+                    logger.warning(f"Modern GenAI model {m_name} in report notice: {mod_err}")
+                    break # Google API experiencing high demand / timeout; use instant deterministic report
 
-                model = genai.GenerativeModel(m_name, generation_config={"response_mime_type": "application/json"})
-                response = model.generate_content(prompt)
-                if response and response.text:
-                    result = json.loads(response.text)
-                    result['disclaimer'] = DISCLAIMER
-                    return result
-            except Exception as model_err:
-                logger.warning(f"Model {m_name} failed in single report: {model_err}")
-                continue
-
-        # If all models failed or rate-limited, return algorithmic report
+        # Return fast algorithmic report directly from verified financial statements
         return build_algorithmic_single_report(company_data, metrics_dict, evaluation_report)
         
     except Exception as e:
