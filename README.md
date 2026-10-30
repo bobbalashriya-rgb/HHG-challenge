@@ -84,3 +84,33 @@ npm run dev
 ```
 
 Visit [http://localhost:5173/](http://localhost:5173/) to launch the platform.
+
+---
+
+## 🧪 Testing
+
+### Backend Unit Tests
+```bash
+cd backend
+python manage.py test api
+```
+
+---
+
+## 🔌 API Endpoints Reference
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/` | API status & version check |
+| `GET` | `/api/principles` | List all institutional investment principles |
+| `PUT` | `/api/principles/<id>` | Update threshold for a principle |
+| `GET` | `/api/company/<ticker>` | Fetch normalized Yfinance statements |
+| `POST` | `/api/analyze` | Single company deep-dive analysis (`{"ticker": "AAPL"}`) |
+| `POST` | `/api/ask` | Interactive Q&A on company financial context |
+| `GET` | `/admin/` | Django Administration portal |
+| `GET` | `/api/core/health/` | Qualitative RAG service health check |
+| `GET` | `/api/docs/` | Interactive Swagger OpenAPI documentation |
+
+
+
+<img width="1600" height="940" alt="WhatsApp Image 2026-10-30 at 09 50 41" src="https://github.com/user-attachments/assets/010f245e-d263-4545-8bc6-00af45d6b157" />
