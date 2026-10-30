@@ -43,6 +43,7 @@ urlpatterns = [
     path('api/', include('api.urls')),
 
     # Qualitative Fundamental Analysis & RAG Endpoints (StockQualitativeAnalysis)
+    path('api/', include('core.urls')),
     path('api/companies/', include('companies.urls')),
     path('api/documents/', include('documents.urls')),
     path('api/research/', include('research.urls')),
